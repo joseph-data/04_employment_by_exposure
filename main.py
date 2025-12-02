@@ -20,8 +20,8 @@ def load_module(name: str, filename: str):
     return module
 
 
-SCB_PULL = load_module("scb_pull_ai", "01_scbPull_AI.py")
-WEIGHTING = load_module("weighting_ai", "02_weighting_AI.py")
+SCB_PULL = load_module("scb_pull", "01_scbPull.py")
+WEIGHTING = load_module("weighting", "02_weighting.py")
 
 
 def run_pipeline(taxonomies: Iterable[WEIGHTING.Taxonomy]):

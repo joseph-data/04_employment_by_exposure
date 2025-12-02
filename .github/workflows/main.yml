@@ -1,0 +1,43 @@
+name: Sync to Hugging Face hub
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  
+jobs:
+  check-file-size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check large files
+        run: |
+          LIMIT=10485760
+          echo "Fail if any tracked file exceeds $LIMIT bytes (~10MB)"
+          LARGE_FILES=$(find . -type f \
+            -not -path "./.git/*" \
+            -not -path "./.github/workflows/*" \
+            -size +${LIMIT}c)
+          if [ -n "$LARGE_FILES" ]; then
+            echo "The following files exceed the limit:"
+            echo "$LARGE_FILES"
+            exit 1
+          fi
+          echo "No files larger than 10MB detected."
+
+  sync-to-hub:
+    needs: check-file-size
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          lfs: true
+      - name: Push to hub
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: git push https://joseph-data:$HF_TOKEN@huggingface.co/spaces/joseph-data/employment_ai main

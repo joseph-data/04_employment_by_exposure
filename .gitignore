@@ -1,0 +1,26 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Project-specific artifacts
+test_notebooks/
+.python-version
+pyproject.toml
+uv.lock
+scripts/03_translate_ssyk2012.py
+scripts/03_translate_ssyk96.py
+scripts/03_translate_ssyk2012.py
+scripts/03_translate_ssyk96.py
+data/01_daioe_raw/
+data/02_scb_data/
+data/04_translation_files/
+scripts/03_translate_ssyk2012.py
+scripts/03_translate_ssyk96.py
+_brand.yml

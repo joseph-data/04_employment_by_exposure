@@ -181,7 +181,7 @@ def make_plot(df: pd.DataFrame, metric: str, base_year: int | None):
     p = (
         ggplot(df, aes(x="year", y="series_value", color="factor(exposure_level)"))
         + geom_line(size=1)
-        + facet_wrap("~age_label", ncol=3)
+        + facet_wrap("~age_label", ncol=2)
         + scale_color_manual(
             values=palette,
             name="AI exposure",
@@ -191,10 +191,10 @@ def make_plot(df: pd.DataFrame, metric: str, base_year: int | None):
         + labs(title=title, subtitle=subtitle, x="Year", y=y_label)
         + theme_bw()
         + theme(
-            figure_size=(14, 10),
+            figure_size=(10, 14),
             axis_text_x=element_text(rotation=45, hjust=1),
-            plot_title=element_text(size=12, weight="bold"),
-            plot_subtitle=element_text(size=10),
+            plot_title=element_text(size=13, weight="bold"),
+            plot_subtitle=element_text(size=11),
             legend_position="top",
         )
     )

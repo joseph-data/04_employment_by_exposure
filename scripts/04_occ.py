@@ -1,10 +1,11 @@
 import pandas as pd
-from pyscbwrapper import SCB
 from pathlib import Path
+from pyscbwrapper import SCB
 
 
 # Optional: project root if you need it elsewhere
-ROOT = Path.cwd().resolve().parents[1]
+# Derive from this file’s location to avoid failures when CWD is /app (container)
+ROOT = Path(__file__).resolve().parents[1]
 
 TAX_ID = "ssyk2012"
 

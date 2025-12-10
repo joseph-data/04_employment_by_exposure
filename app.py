@@ -3,9 +3,6 @@ from shiny import reactive
 from shiny.express import input, ui, render, module
 from shinywidgets import output_widget, render_plotly
 
-import io
-import sys
-from pathlib import Path
 from functools import lru_cache
 
 import pandas as pd
@@ -14,11 +11,20 @@ import plotly.graph_objects as go
 from plotly.callbacks import Points
 from plotly.subplots import make_subplots
 
+from src.config import (
+    DEFAULT_LEVEL,
+    DEFAULT_WEIGHTING,
+    DEFAULT_YEAR_RANGE,
+    GLOBAL_YEAR_MAX,
+    GLOBAL_YEAR_MIN,
+    LEVEL_OPTIONS,
+    METRIC_OPTIONS,
+    WEIGHTING_OPTIONS,
+)
+
 # ======================================================
 #  PLEMINARIES
 # ======================================================
-ROOT = Path.cwd().resolve().parent
-sys.path.insert(0, str(ROOT))
 
 
 @lru_cache(maxsize=1)
@@ -37,41 +43,9 @@ def load_pipeline():
 # Load Data
 payload = load_pipeline()
 
-LEVEL_OPTIONS: List[Tuple[str, str]] = [
-    ("Level 4 (4-digit)", "4"),
-    ("Level 3 (3-digit)", "3"),
-    ("Level 2 (2-digit)", "2"),
-    ("Level 1 (1-digit)", "1"),
-]
-
-DEFAULT_LEVEL = "3"
-DEFAULT_WEIGHTING = "weighted"
-
 # Shared UI options.
-METRIC_OPTIONS: List[Tuple[str, str]] = [
-    ("📚 All Applications", "allapps"),
-    ("♟️ Abstract strategy games", "stratgames"),
-    ("🎮 Real-time video games", "videogames"),
-    ("🖼️🔎 Image recognition", "imgrec"),
-    ("🧩🖼️ Image comprehension", "imgcompr"),
-    ("🖌️🖼️ Image generation", "imggen"),
-    ("📖 Reading comprehension", "readcompr"),
-    ("✍️🤖 Language modelling", "lngmod"),
-    ("🌐🔤 Translation", "translat"),
-    ("🗣️🎙️ Speech recognition", "speechrec"),
-    ("🧠✨ Generative AI", "genai"),
-]
-
-WEIGHTING_OPTIONS: List[Tuple[str, str]] = [
-    ("Employment weighted", "weighted"),
-    ("Simple average", "simple"),
-]
 
 LEVEL_CHOICES = {value: label for label, value in LEVEL_OPTIONS}
-
-GLOBAL_YEAR_MIN = 2014
-GLOBAL_YEAR_MAX = 2023
-DEFAULT_YEAR_RANGE = (GLOBAL_YEAR_MIN, GLOBAL_YEAR_MAX)
 
 
 def metric_mapping() -> Dict[str, str]:
@@ -219,7 +193,7 @@ with ui.nav_panel("Visuals"):
 
             fig.update_layout(
                 height=700 * len(age_groups),
-                width=1500,
+                width=1300,
                 legend=dict(
                     title="Exposure Level",
                     orientation="h",

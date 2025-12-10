@@ -1,2 +1,4 @@
+data/daioe_simple.csv filter=lfs diff=lfs merge=lfs -text
+data/daioe_weighted.csv filter=lfs diff=lfs merge=lfs -text
 data/*.csv filter=lfs diff=lfs merge=lfs -text
 *.csv filter=lfs diff=lfs merge=lfs -text

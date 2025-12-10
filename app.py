@@ -27,7 +27,7 @@ from src.config import (
 # ======================================================
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=128)
 def load_pipeline():
     """
     Load and cache the pipeline payload.

@@ -112,12 +112,21 @@ payload_store = reactive.Value(load_payload())
 @reactive.event(input.refresh_data)
 def _refresh_payload():
     with ui.Progress() as progress:
-        progress.set(message="Refreshing data", detail="Recomputing pipeline...")
-        progress.set(message="Running pipeline")
+        progress.set(
+            message="Refreshing data",
+            detail="Starting pipeline recompute...",
+            value=0.1,
+        )
         _compute_pipeline_payload.cache_clear()
+        progress.set(detail="Running pipeline...", value=0.4)
         updated_payload = load_payload(force_recompute=True)
+        progress.set(detail="Updating cache...", value=0.7)
         payload_store.set(updated_payload)
-        progress.set(message="Refresh complete", detail="Local cache updated")
+        progress.set(
+            message="Refresh complete",
+            detail="Local cache updated",
+            value=1.0,
+        )
 
 
 # Shared UI options.

@@ -1,3 +1,5 @@
+import os
+import tempfile
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional
 from shiny import reactive
@@ -28,7 +30,34 @@ from src.config import (
 # ======================================================
 
 
-DATA_DIR = Path(__file__).parent / "data"
+def _resolve_cache_dir() -> Path:
+    """
+    Choose a writable cache directory.
+    Prefers DATA_CACHE_DIR env, then repo ./data, then /tmp fallback.
+    """
+    candidates = []
+    env_dir = os.getenv("DATA_CACHE_DIR")
+    if env_dir:
+        candidates.append(Path(env_dir))
+    candidates.append(Path(__file__).parent / "data")
+    candidates.append(Path(tempfile.gettempdir()) / "employment_ai_cache")
+
+    for path in candidates:
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            test_file = path / ".write_test"
+            test_file.write_text("ok")
+            test_file.unlink(missing_ok=True)
+            return path
+        except Exception:
+            continue
+
+    fallback = Path(tempfile.gettempdir()) / "employment_ai_cache"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+DATA_DIR = _resolve_cache_dir()
 WEIGHTED_CACHE = DATA_DIR / "daioe_weighted.csv"
 SIMPLE_CACHE = DATA_DIR / "daioe_simple.csv"
 
@@ -67,9 +96,11 @@ def load_payload(force_recompute: bool = False) -> Dict[str, object]:
             return disk_payload
 
     payload = _compute_pipeline_payload()
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    payload["weighted"].to_csv(WEIGHTED_CACHE, index=False)
-    payload["simple"].to_csv(SIMPLE_CACHE, index=False)
+    try:
+        payload["weighted"].to_csv(WEIGHTED_CACHE, index=False)
+        payload["simple"].to_csv(SIMPLE_CACHE, index=False)
+    except Exception as exc:
+        print(f"Warning: could not write cache to {DATA_DIR}: {exc}")
     return payload
 
 
@@ -144,7 +175,7 @@ with ui.sidebar(open="desktop", bg="#f8f8f8"):
         class_="btn-warning mt-3",
     )
     ui.help_text(
-        "On startup we load cached CSVs in data/. Refresh forces a recompute and overwrites them."
+        f"Cache dir: {DATA_DIR}. Set DATA_CACHE_DIR env to override. Refresh recomputes and overwrites."
     )
 
 

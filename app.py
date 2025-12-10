@@ -123,7 +123,7 @@ def _refresh_payload():
         progress.set(detail="Updating cache...", value=0.7)
         payload_store.set(updated_payload)
         progress.set(
-            message="Refresh complete",
+            message="Refresh complete!",
             detail="Local cache updated",
             value=1.0,
         )

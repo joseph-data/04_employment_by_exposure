@@ -1,4 +1,5 @@
-from typing import List, Tuple, Dict
+from pathlib import Path
+from typing import List, Tuple, Dict, Optional
 from shiny import reactive
 from shiny.express import input, ui, render, module
 from shinywidgets import output_widget, render_plotly
@@ -27,8 +28,13 @@ from src.config import (
 # ======================================================
 
 
-@lru_cache(maxsize=128)
-def load_pipeline():
+DATA_DIR = Path(__file__).parent / "data"
+WEIGHTED_CACHE = DATA_DIR / "daioe_weighted.csv"
+SIMPLE_CACHE = DATA_DIR / "daioe_simple.csv"
+
+
+@lru_cache(maxsize=1)
+def _compute_pipeline_payload() -> Dict[str, object]:
     """
     Load and cache the pipeline payload.
 
@@ -40,8 +46,46 @@ def load_pipeline():
     return pipeline_main.run_pipeline()
 
 
-# Load Data
-payload = load_pipeline()
+def _load_payload_from_disk() -> Optional[Dict[str, pd.DataFrame]]:
+    """
+    Read cached CSVs if both are present; otherwise return None.
+    """
+    if WEIGHTED_CACHE.exists() and SIMPLE_CACHE.exists():
+        weighted = pd.read_csv(WEIGHTED_CACHE)
+        simple = pd.read_csv(SIMPLE_CACHE)
+        return {"weighted": weighted, "simple": simple}
+    return None
+
+
+def load_payload(force_recompute: bool = False) -> Dict[str, object]:
+    """
+    Prefer local cached CSVs; otherwise recompute and write them.
+    """
+    if not force_recompute:
+        disk_payload = _load_payload_from_disk()
+        if disk_payload:
+            return disk_payload
+
+    payload = _compute_pipeline_payload()
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    payload["weighted"].to_csv(WEIGHTED_CACHE, index=False)
+    payload["simple"].to_csv(SIMPLE_CACHE, index=False)
+    return payload
+
+
+# Holds the active payload so refreshes propagate reactively.
+payload_store = reactive.Value(load_payload())
+
+@reactive.effect
+@reactive.event(input.refresh_data)
+def _refresh_payload():
+    with ui.Progress() as progress:
+        progress.set(message="Refreshing data", detail="Recomputing pipeline...")
+        progress.set(message="Running pipeline")
+        _compute_pipeline_payload.cache_clear()
+        updated_payload = load_payload(force_recompute=True)
+        payload_store.set(updated_payload)
+        progress.set(message="Refresh complete", detail="Local cache updated")
 
 # Shared UI options.
 
@@ -94,9 +138,22 @@ with ui.sidebar(open="desktop", bg="#f8f8f8"):
         sep="",
     )
 
+    ui.input_action_button(
+        "refresh_data",
+        "Refresh data (re-run pipeline)",
+        class_="btn-warning mt-3",
+    )
+    ui.help_text(
+        "On startup we load cached CSVs in data/. Refresh forces a recompute and overwrites them."
+    )
+
 
 @reactive.calc
 def filtered_data():
+    payload = payload_store.get()
+    if payload is None:
+        return pd.DataFrame()
+
     weighting = input.weighting()
     level = int(input.level())
     df = payload[weighting]

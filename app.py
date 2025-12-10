@@ -107,6 +107,7 @@ def load_payload(force_recompute: bool = False) -> Dict[str, object]:
 # Holds the active payload so refreshes propagate reactively.
 payload_store = reactive.Value(load_payload())
 
+
 @reactive.effect
 @reactive.event(input.refresh_data)
 def _refresh_payload():
@@ -117,6 +118,7 @@ def _refresh_payload():
         updated_payload = load_payload(force_recompute=True)
         payload_store.set(updated_payload)
         progress.set(message="Refresh complete", detail="Local cache updated")
+
 
 # Shared UI options.
 
@@ -171,12 +173,12 @@ with ui.sidebar(open="desktop", bg="#f8f8f8"):
 
     ui.input_action_button(
         "refresh_data",
-        "Refresh data (re-run pipeline)",
+        "Refresh data",
         class_="btn-warning mt-3",
     )
-    ui.help_text(
-        f"Cache dir: {DATA_DIR}. Set DATA_CACHE_DIR env to override. Refresh recomputes and overwrites."
-    )
+    # ui.help_text(
+    #     f"Cache dir: {DATA_DIR}. Set DATA_CACHE_DIR env to override. Refresh recomputes and overwrites."
+    # )
 
 
 @reactive.calc

@@ -1,39 +1,53 @@
-"""
-Shiny app: Employment by AI exposure (5 levels), faceted by age group.
-Uses simple-average exposure scores from
-data/03_daioe_aggregated/daioe_ssyk2012_simple_avg.csv and SCB AKU
-employment pulled via scripts/04_occ.py.
-"""
+from typing import List, Tuple, Dict
+from shiny import reactive
+from shiny.express import input, ui, render, module
+from shinywidgets import output_widget, render_plotly
 
-from __future__ import annotations
-
-import importlib.util
-from functools import lru_cache
+import io
+import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from functools import lru_cache
 
-import numpy as np
 import pandas as pd
-from plotnine import (
-    aes,
-    element_text,
-    facet_wrap,
-    geom_line,
-    geom_vline,
-    ggplot,
-    labs,
-    scale_color_manual,
-    scale_x_continuous,
-    theme,
-    theme_bw,
-)
-from shiny import App, render, ui
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.callbacks import Points
+from plotly.subplots import make_subplots
 
-ROOT = Path(__file__).resolve().parent
-EXPOSURE_PATH = ROOT / "data" / "03_daioe_aggregated" / "daioe_ssyk2012_simple_avg.csv"
-OCC_PATH = ROOT / "scripts" / "04_occ.py"
+# ======================================================
+#  PLEMINARIES
+# ======================================================
+ROOT = Path.cwd().resolve().parent
+sys.path.insert(0, str(ROOT))
 
-# Keep labels consistent with app.py (emoji + text)
+
+@lru_cache(maxsize=1)
+def load_pipeline():
+    """
+    Load and cache the pipeline payload.
+
+    Runs src.main.run_pipeline() exactly once.
+    Subsequent calls reuse the cached payload.
+    """
+    from src import main as pipeline_main
+
+    return pipeline_main.run_pipeline()
+
+
+# Load Data
+payload = load_pipeline()
+
+LEVEL_OPTIONS: List[Tuple[str, str]] = [
+    ("Level 4 (4-digit)", "4"),
+    ("Level 3 (3-digit)", "3"),
+    ("Level 2 (2-digit)", "2"),
+    ("Level 1 (1-digit)", "1"),
+]
+
+DEFAULT_LEVEL = "3"
+DEFAULT_WEIGHTING = "weighted"
+
+# Shared UI options.
 METRIC_OPTIONS: List[Tuple[str, str]] = [
     ("📚 All Applications", "allapps"),
     ("♟️ Abstract strategy games", "stratgames"),
@@ -47,199 +61,217 @@ METRIC_OPTIONS: List[Tuple[str, str]] = [
     ("🗣️🎙️ Speech recognition", "speechrec"),
     ("🧠✨ Generative AI", "genai"),
 ]
-METRIC_LABELS: Dict[str, str] = {key: label for label, key in METRIC_OPTIONS}
-METRIC_REVERSE: Dict[str, str] = {label: key for label, key in METRIC_OPTIONS}
 
-AGE_ORDER: List[str] = [
-    "16-24",
-    "25-29",
-    "30-34",
-    "35-39",
-    "40-44",
-    "45-49",
-    "50-54",
-    "55-59",
-    "60-64",
+WEIGHTING_OPTIONS: List[Tuple[str, str]] = [
+    ("Employment weighted", "weighted"),
+    ("Simple average", "simple"),
 ]
-AGE_LABELS: Dict[str, str] = {age: f"{age} Years" for age in AGE_ORDER}
-AGE_LABEL_ORDER: List[str] = [AGE_LABELS[age] for age in AGE_ORDER]
+
+LEVEL_CHOICES = {value: label for label, value in LEVEL_OPTIONS}
+
+GLOBAL_YEAR_MIN = 2014
+GLOBAL_YEAR_MAX = 2023
+DEFAULT_YEAR_RANGE = (GLOBAL_YEAR_MIN, GLOBAL_YEAR_MAX)
 
 
-def _load_occ_module():
-    """Load the employment fetcher from scripts/04_occ.py."""
-    spec = importlib.util.spec_from_file_location("scripts.occ", OCC_PATH)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+def metric_mapping() -> Dict[str, str]:
+    return {value: label for label, value in METRIC_OPTIONS}
 
 
-@lru_cache(maxsize=1)
-def load_employment() -> pd.DataFrame:
-    """Fetch SCB AKU employment by occupation, age, and year."""
-    occ_mod = _load_occ_module()
-    df = occ_mod.fetch_scb_aku_occupations()
-    df = df.rename(columns={"code_3": "code"})
-    df["code"] = df["code"].astype(str).str.zfill(3)
-    df["year"] = df["year"].astype(int)
-    df["value"] = df["value"].astype(int)
-    df = df[df["age"].isin(AGE_ORDER)].copy()
-    return df
+def weighting_mapping() -> Dict[str, str]:
+    return {value: label for label, value in WEIGHTING_OPTIONS}
 
 
-@lru_cache(maxsize=len(METRIC_LABELS))
-def load_exposure(metric: str) -> pd.DataFrame:
-    """
-    Load exposure data (simple average) and assign 5 exposure levels
-    using percentile rankings for the chosen metric.
-    """
-    pct_col = f"pct_rank_{metric}"
-    df = pd.read_csv(EXPOSURE_PATH)
-    df = df[df["level"] == 3].copy()
-    df = df[df[pct_col].notna()]
-    df["code"] = df["code"].astype(int).astype(str).str.zfill(3)
-    df["year"] = df["year"].astype(int)
-    df["exposure_level"] = pd.cut(
-        df[pct_col],
-        bins=np.linspace(0, 1, 6),
-        labels=[1, 2, 3, 4, 5],
-        include_lowest=True,
-    ).astype(int)
-    return df[["code", "year", "exposure_level"]]
+#### APP BEGINS HERE
+
+# with ui.div(class_="col-md-10 col-lg-8 py-5 mx-auto text-lg-center text-left"):
+#     ui.h1("Number of Employed Persons by Level of AI Exposure")
 
 
-@lru_cache(maxsize=1)
-def available_years() -> List[int]:
-    """
-    Determine years available in both employment and exposure data to
-    keep base-year choices valid across metrics.
-    """
-    emp_years = set(load_employment()["year"].unique())
-    exp_df = pd.read_csv(EXPOSURE_PATH)
-    exp_years = set(exp_df[exp_df["level"] == 3]["year"].astype(int).unique())
-    years = sorted(emp_years & exp_years)
-    return years
-
-
-BASE_YEAR_CHOICES: Dict[str, str] = {
-    "none": "No index (raw employment)",
-    **{str(y): f"Base {y}=1" for y in available_years()},
-}
-
-
-def build_employment_series(metric: str, base_year: int | None) -> pd.DataFrame:
-    """
-    Merge employment with exposure levels and aggregate employment by
-    age/year/exposure level. Optionally index to the chosen base year.
-    """
-    metric_key = METRIC_REVERSE.get(metric, metric)  # accept either label or key
-
-    emp = load_employment()
-    exp = load_exposure(metric_key)
-
-    merged = emp.merge(exp, on=["code", "year"], how="inner")
-    grouped = merged.groupby(["age", "year", "exposure_level"], as_index=False)[
-        "value"
-    ].sum()
-    grouped = grouped.rename(columns={"value": "employment"})
-
-    if base_year is not None:
-        base = grouped[grouped["year"] == base_year][
-            ["age", "exposure_level", "employment"]
-        ].rename(columns={"employment": "base_employment"})
-
-        grouped = grouped.merge(base, on=["age", "exposure_level"], how="left")
-        grouped = grouped[grouped["base_employment"].notna()].copy()
-        grouped["series_value"] = grouped["employment"] / grouped["base_employment"]
-    else:
-        grouped["series_value"] = grouped["employment"]
-
-    grouped["age"] = pd.Categorical(grouped["age"], categories=AGE_ORDER, ordered=True)
-    grouped["age_label"] = grouped["age"].map(AGE_LABELS)
-    grouped["age_label"] = pd.Categorical(
-        grouped["age_label"], categories=AGE_LABEL_ORDER, ordered=True
+with ui.sidebar(open="desktop", bg="#f8f8f8"):
+    ui.input_select(
+        "level",
+        "Level",
+        LEVEL_CHOICES,
+        selected=DEFAULT_LEVEL,
     )
-    grouped = grouped.sort_values(["age", "exposure_level", "year"])
-    return grouped
 
-
-def make_plot(df: pd.DataFrame, metric: str, base_year: int | None):
-    """Create a faceted line plot similar to the provided reference."""
-    # Color-blind–friendly 5-color palette (Okabe-Ito inspired)
-    palette = {
-        1: "#0072B2",  # blue
-        2: "#56B4E9",  # light blue
-        3: "#009E73",  # green
-        4: "#E69F00",  # orange
-        5: "#D55E00",  # vermillion
-    }
-
-    title = "Employment by AI exposure (5 levels) by age group"
-    subtitle = "Aggregated DAIOE, SCB AKU employment"
-    y_label = f"Index (base={base_year}=1)" if base_year is not None else "Employment"
-
-    p = (
-        ggplot(df, aes(x="year", y="series_value", color="factor(exposure_level)"))
-        + geom_line(size=1)
-        + facet_wrap("~age_label", ncol=2)
-        + scale_color_manual(
-            values=palette,
-            name="AI exposure",
-            labels=["Level 1", "Level 2", "Level 3", "Level 4", "Level 5"],
-        )
-        + scale_x_continuous(breaks=sorted(df["year"].unique()))
-        + labs(title=title, subtitle=subtitle, x="Year", y=y_label)
-        + theme_bw()
-        + theme(
-            figure_size=(10, 14),
-            axis_text_x=element_text(rotation=45, hjust=1),
-            plot_title=element_text(size=13, weight="bold"),
-            plot_subtitle=element_text(size=11),
-            legend_position="top",
-        )
+    ui.input_select(
+        "weighting",
+        "Weighting",
+        weighting_mapping(),
+        selected=DEFAULT_WEIGHTING,
     )
-    if base_year is not None:
-        p = p + geom_vline(
-            xintercept=base_year,
-            linetype="dashed",
-            color="#555555",
-            alpha=0.6,
-            size=0.8,
-        )
-    return p
 
-
-app_ui = ui.page_fluid(
     ui.input_select(
         "metric",
-        "Exposure metric",
-        # mapping consistent with app.py; keys are metric ids, values are emoji labels
-        choices={key: label for label, key in METRIC_OPTIONS},
-        selected="genai",
-    ),
-    ui.input_select(
-        "base_year",
-        "Base year (optional index)",
-        choices=BASE_YEAR_CHOICES,
-        selected="none",
-    ),
-    ui.output_plot("exposure_plot", width="100%", height="1800px"),
-)
+        "Sub-index",
+        metric_mapping(),
+        selected=METRIC_OPTIONS[0][1],
+    )
+
+    ui.input_slider(
+        "year_range",
+        "Year range",
+        min=GLOBAL_YEAR_MIN,
+        max=GLOBAL_YEAR_MAX,
+        value=DEFAULT_YEAR_RANGE,
+        step=1,
+        sep="",
+    )
 
 
-def server(input, output, session):
-    @render.plot
-    def exposure_plot():
-        metric = input.metric()
-        base_year_raw = input.base_year()
-        base_year = None if base_year_raw == "none" else int(base_year_raw)
-        df = build_employment_series(metric, base_year)
-        return make_plot(df, metric, base_year)
+@reactive.calc
+def filtered_data():
+    weighting = input.weighting()
+    level = int(input.level())
+    df = payload[weighting]
+    idx1 = df["level"] == level
+    idx2 = df["year"].between(
+        left=input.year_range()[0], right=input.year_range()[1], inclusive="both"
+    )
+    metric = input.metric()
+
+    cols = [c for c in df.columns if not c.startswith("daioe_") or metric in c]
+    df_filtered = df[idx1 & idx2][cols]
+    df_sorted = df_filtered.sort_values(
+        [f"daioe_{metric}_exposure_level", "year"], ascending=[False, True]
+    )
+    return df_sorted
 
 
-app = App(app_ui, server)
+with ui.nav_panel("Visuals"):
+    with ui.div(style="display:flex; justify-content:center;"):
+        output_widget("plot")
+
+        @render_plotly
+        def exposure_plot():
+            df = filtered_data()
+            metric = input.metric()
+            exposure_col = f"daioe_{metric}_exposure_level"
+
+            df = df.dropna(subset=["age", exposure_col])
+            age_groups = sorted(df["age"].unique())
+
+            fig = make_subplots(
+                rows=len(age_groups),
+                cols=1,
+                shared_xaxes=False,
+                subplot_titles=[
+                    f"Employed Persons Aged {age} Years by AI Exposure ({metric_mapping()[metric]}, {weighting_mapping()[input.weighting()]})"
+                    for age in age_groups
+                ],
+                vertical_spacing=0.03,
+            )
+
+            for i, age in enumerate(age_groups, start=1):
+                df_age = df[df["age"] == age]
+                df_plot = df_age.groupby(["year", exposure_col], as_index=False)[
+                    "employment"
+                ].sum()
+
+                for exposure_level, sub in df_plot.groupby(exposure_col):
+                    fig.add_trace(
+                        go.Scatter(
+                            x=sub["year"],
+                            y=sub["employment"],
+                            mode="lines+markers",
+                            line=dict(width=3),
+                            marker=dict(size=9),
+                            name=f"Level {exposure_level}",
+                            showlegend=(
+                                i == 1
+                            ),  # Only show legend items for the first plot
+                            hovertemplate=(
+                                "Age: %{customdata[0]}<br>"
+                                "Exposure Level: Level %{customdata[1]}<br>"
+                                "Year: %{x}<br>"
+                                "Employed Persons: %{y:,}<extra></extra>"
+                            ),
+                            customdata=list(
+                                zip([age] * len(sub), [exposure_level] * len(sub))
+                            ),
+                        ),
+                        row=i,
+                        col=1,
+                    )
+
+                # X label on each subplot
+                fig.update_xaxes(
+                    title_text="Year",
+                    tickmode="linear",
+                    dtick=1,
+                    row=i,
+                    col=1,
+                )
+
+                # Y label on each subplot
+                fig.update_yaxes(
+                    title_text="Employed Persons",
+                    tickformat=",",
+                    rangemode="tozero",
+                    row=i,
+                    col=1,
+                )
+
+            # Shift Subplot Titles Up
+            fig.update_annotations(yshift=30)
+
+            fig.update_layout(
+                height=700 * len(age_groups),
+                width=1500,
+                legend=dict(
+                    title="Exposure Level",
+                    orientation="h",
+                    x=0.5,
+                    y=1.02,
+                    xanchor="center",
+                    yanchor="bottom",
+                ),
+                margin=dict(t=100, l=50, r=80, b=40),
+            )
+
+            return fig
 
 
-if __name__ == "__main__":
-    # Run with: shiny run --reload app_ai_exposure.py
-    app.run()
+with ui.nav_panel("Data"):
+
+    @render.data_frame
+    def display_df():
+        df = filtered_data()
+        return render.DataGrid(
+            df,
+            height=800,
+            selection_mode="rows",
+            filters=True,
+        )
+
+    ui.input_radio_buttons(
+        "download_format",
+        "Download format",
+        {"csv": "CSV", "json": "JSON"},
+        selected="csv",
+    )
+
+    # ui.download_button("download_data", "Download Filtered Data")
+
+    @render.download(
+        filename=lambda: f"employment_data_{input.metric()}_{input.level()}.{input.download_format()}"
+    )
+    def download_data():
+        df = filtered_data()
+        format_type = input.download_format()
+
+        if format_type == "csv":
+            # Yield CSV text (Shiny will handle encoding)
+            yield df.to_csv(index=False)
+
+        elif format_type == "json":
+            # Yield JSON text
+            yield df.to_json(orient="records", indent=2)
+
+
+# with ui.layout_columns(col_widths=[12]):
+#     for i in range(1, 9):
+#         with ui.card():
+#             f"Card {i}"

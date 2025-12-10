@@ -160,7 +160,7 @@ with ui.nav_panel("Visuals"):
                                 "Age: %{customdata[0]}<br>"
                                 "Exposure Level: Level %{customdata[1]}<br>"
                                 "Year: %{x}<br>"
-                                "Employed Persons: %{y:,}<extra></extra>"
+                                "Number of Employed Persons: %{y:,}<extra></extra>"
                             ),
                             customdata=list(
                                 zip([age] * len(sub), [exposure_level] * len(sub))

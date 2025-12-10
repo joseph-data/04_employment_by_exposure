@@ -44,3 +44,42 @@ AGE_EXCLUSIONS: List[str] = ["65-69 years"]
 
 # Occupation codes to drop after the fetch
 EXCLUDED_CODES: List[str] = ["0002", "0000"]
+
+
+# ======================================================
+#  UI / APP CONFIGURATION
+# ======================================================
+
+LEVEL_OPTIONS: List[Tuple[str, str]] = [
+    ("Level 4 (4-digit)", "4"),
+    ("Level 3 (3-digit)", "3"),
+    ("Level 2 (2-digit)", "2"),
+    ("Level 1 (1-digit)", "1"),
+]
+
+DEFAULT_LEVEL: str = "3"
+DEFAULT_WEIGHTING: str = "weighted"
+
+METRIC_OPTIONS: List[Tuple[str, str]] = [
+    ("📚 All Applications", "allapps"),
+    ("♟️ Abstract strategy games", "stratgames"),
+    ("🎮 Real-time video games", "videogames"),
+    ("🖼️🔎 Image recognition", "imgrec"),
+    ("🧩🖼️ Image comprehension", "imgcompr"),
+    ("🖌️🖼️ Image generation", "imggen"),
+    ("📖 Reading comprehension", "readcompr"),
+    ("✍️🤖 Language modelling", "lngmod"),
+    ("🌐🔤 Translation", "translat"),
+    ("🗣️🎙️ Speech recognition", "speechrec"),
+    ("🧠✨ Generative AI", "genai"),
+]
+
+WEIGHTING_OPTIONS: List[Tuple[str, str]] = [
+    ("Employment weighted", "weighted"),
+    ("Simple average", "simple"),
+]
+
+GLOBAL_YEAR_MIN: int = 2014
+GLOBAL_YEAR_MAX: int = 2023
+DEFAULT_YEAR_RANGE: Tuple[int, int] = (GLOBAL_YEAR_MIN, GLOBAL_YEAR_MAX)
+

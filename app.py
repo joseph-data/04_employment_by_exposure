@@ -1,4 +1,7 @@
 from typing import List, Tuple, Dict
+from pathlib import Path
+import os
+
 from shiny import reactive
 from shiny.express import input, ui, render, module
 from shinywidgets import output_widget, render_plotly
@@ -27,21 +30,61 @@ from src.config import (
 # ======================================================
 
 
-@lru_cache(maxsize=1)
-def load_pipeline():
-    """
-    Load and cache the pipeline payload.
+DATA_DIR = Path(__file__).resolve().parent / "data"
+WEIGHTED_PATH = DATA_DIR / "daioe_weighted.csv"
+SIMPLE_PATH = DATA_DIR / "daioe_simple.csv"
+META_PATH = DATA_DIR / "daioe_meta.csv"
 
-    Runs src.main.run_pipeline() exactly once.
-    Subsequent calls reuse the cached payload.
+
+def _load_cached_payload() -> Dict[str, object] | None:
+    """
+    Attempt to load precomputed pipeline outputs from CSV cache.
+    """
+    if not (WEIGHTED_PATH.exists() and SIMPLE_PATH.exists() and META_PATH.exists()):
+        return None
+    try:
+        weighted = pd.read_csv(WEIGHTED_PATH)
+        simple = pd.read_csv(SIMPLE_PATH)
+        meta_df = pd.read_csv(META_PATH)
+        meta_row = meta_df.iloc[0] if not meta_df.empty else {}
+        daioe_cols = [
+            c.strip()
+            for c in str(meta_row.get("daioe_cols", "")).split(",")
+            if c.strip()
+        ]
+        return {
+            "taxonomy": meta_row.get("taxonomy", "ssyk2012"),
+            "weighted": weighted,
+            "simple": simple,
+            "daioe_cols": daioe_cols,
+            "year_min": int(meta_row["year_min"]),
+            "year_max": int(meta_row["year_max"]),
+        }
+    except Exception as exc:
+        print(f"Cache read failed, refreshing instead: {exc}")
+        return None
+
+
+@lru_cache(maxsize=1)
+def load_pipeline(force_refresh: bool = False):
+    """
+    Prefer cached CSVs; fall back to running the pipeline.
+    Set env FORCE_REFRESH=1 or pass force_refresh=True to force a refresh.
     """
     from src import main as pipeline_main
 
-    return pipeline_main.run_pipeline()
+    if not force_refresh and os.getenv("FORCE_REFRESH", "0") != "1":
+        cached = _load_cached_payload()
+        if cached is not None:
+            return cached
+
+    print("Running pipeline (cache miss or forced refresh)...")
+    payload = pipeline_main.run_pipeline()  # also writes fresh CSVs
+    return payload
 
 
-# Load Data
-payload = load_pipeline()
+# Hold Data so UI can refresh it on demand
+payload_state = reactive.Value(load_pipeline())
 
 # Shared UI options.
 
@@ -93,13 +136,18 @@ with ui.sidebar(open="desktop", bg="#f8f8f8"):
         step=1,
         sep="",
     )
+    ui.input_action_button(
+        "refresh_data",
+        "Refresh data",
+        class_="btn btn-primary mt-3",
+    )
 
 
 @reactive.calc
 def filtered_data():
     weighting = input.weighting()
     level = int(input.level())
-    df = payload[weighting]
+    df = payload_state()[weighting]
     idx1 = df["level"] == level
     idx2 = df["year"].between(
         left=input.year_range()[0], right=input.year_range()[1], inclusive="both"
@@ -112,6 +160,20 @@ def filtered_data():
         [f"daioe_{metric}_exposure_level", "year"], ascending=[False, True]
     )
     return df_sorted
+
+
+@reactive.effect
+@reactive.event(input.refresh_data)
+def _refresh_payload():
+    """
+    Refresh the pipeline outputs on demand, showing a progress bar.
+    """
+    load_pipeline.cache_clear()
+    with ui.Progress(min=0, max=3) as p:
+        p.set(1, message="Refreshing data…")
+        new_payload = load_pipeline(force_refresh=True)
+        p.set(3, message="Done")
+    payload_state.set(new_payload)
 
 
 with ui.nav_panel("Visuals"):

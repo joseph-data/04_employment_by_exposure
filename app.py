@@ -1,19 +1,9 @@
-import os
-import tempfile
-from pathlib import Path
-from typing import List, Tuple, Dict, Optional
+import pandas as pd
 from shiny import reactive
-from shiny.express import input, ui, render, module
+from shiny.express import input, ui, render
 from shinywidgets import output_widget, render_plotly
 
-from functools import lru_cache
-
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.callbacks import Points
-from plotly.subplots import make_subplots
-
+# Import organized modules
 from src.config import (
     DEFAULT_LEVEL,
     DEFAULT_WEIGHTING,
@@ -24,87 +14,18 @@ from src.config import (
     METRIC_OPTIONS,
     WEIGHTING_OPTIONS,
 )
+from src.data_manager import load_payload
+from src.plotting import create_exposure_plot
+
+# Helpers for UI mapping
+LEVEL_CHOICES = {value: label for label, value in LEVEL_OPTIONS}
+METRIC_MAPPING = {value: label for label, value in METRIC_OPTIONS}
+WEIGHTING_MAPPING = {value: label for label, value in WEIGHTING_OPTIONS}
+YEAR_RANGE_DEFAULT = list(range(DEFAULT_YEAR_RANGE[0], DEFAULT_YEAR_RANGE[1] + 1))
 
 # ======================================================
-#  PLEMINARIES
+#  REACTIVE STATE
 # ======================================================
-
-
-def _resolve_cache_dir() -> Path:
-    """
-    Choose a writable cache directory.
-    Prefers DATA_CACHE_DIR env, then repo ./data, then /tmp fallback.
-    """
-    candidates = []
-    env_dir = os.getenv("DATA_CACHE_DIR")
-    if env_dir:
-        candidates.append(Path(env_dir))
-    candidates.append(Path(__file__).parent / "data")
-    candidates.append(Path(tempfile.gettempdir()) / "employment_ai_cache")
-
-    for path in candidates:
-        try:
-            path.mkdir(parents=True, exist_ok=True)
-            test_file = path / ".write_test"
-            test_file.write_text("ok")
-            test_file.unlink(missing_ok=True)
-            return path
-        except Exception:
-            continue
-
-    fallback = Path(tempfile.gettempdir()) / "employment_ai_cache"
-    fallback.mkdir(parents=True, exist_ok=True)
-    return fallback
-
-
-DATA_DIR = _resolve_cache_dir()
-WEIGHTED_CACHE = DATA_DIR / "daioe_weighted.csv"
-SIMPLE_CACHE = DATA_DIR / "daioe_simple.csv"
-
-
-@lru_cache(maxsize=1)
-def _compute_pipeline_payload() -> Dict[str, object]:
-    """
-    Load and cache the pipeline payload.
-
-    Runs src.main.run_pipeline() exactly once.
-    Subsequent calls reuse the cached payload.
-    """
-    from src import main as pipeline_main
-
-    return pipeline_main.run_pipeline()
-
-
-def _load_payload_from_disk() -> Optional[Dict[str, pd.DataFrame]]:
-    """
-    Read cached CSVs if both are present; otherwise return None.
-    """
-    if WEIGHTED_CACHE.exists() and SIMPLE_CACHE.exists():
-        weighted = pd.read_csv(WEIGHTED_CACHE)
-        simple = pd.read_csv(SIMPLE_CACHE)
-        return {"weighted": weighted, "simple": simple}
-    return None
-
-
-def load_payload(force_recompute: bool = False) -> Dict[str, object]:
-    """
-    Prefer local cached CSVs; otherwise recompute and write them.
-    """
-    if not force_recompute:
-        disk_payload = _load_payload_from_disk()
-        if disk_payload:
-            return disk_payload
-
-    payload = _compute_pipeline_payload()
-    try:
-        payload["weighted"].to_csv(WEIGHTED_CACHE, index=False)
-        payload["simple"].to_csv(SIMPLE_CACHE, index=False)
-    except Exception as exc:
-        print(f"Warning: could not write cache to {DATA_DIR}: {exc}")
-    return payload
-
-
-# Holds the active payload so refreshes propagate reactively.
 payload_store = reactive.Value(load_payload())
 
 
@@ -112,63 +33,137 @@ payload_store = reactive.Value(load_payload())
 @reactive.event(input.refresh_data)
 def _refresh_payload():
     with ui.Progress() as progress:
-        progress.set(
-            message="Refreshing data",
-            detail="Starting pipeline recompute...",
-            value=0.1,
+        progress.set(message="Refreshing data...", value=0.1)
+        # Force recompute in data manager
+        updated = load_payload(force_recompute=True)
+        progress.set(message="Updating UI...", value=0.8)
+        payload_store.set(updated)
+        progress.set(message="Done", value=1.0)
+
+
+@reactive.calc
+def filtered_data():
+    payload = payload_store.get()
+    if payload is None:
+        return pd.DataFrame()
+
+    df = payload[input.weighting()]
+
+    # Filter by Level and Year
+    mask = (df["level"] == int(input.level())) & (
+        df["year"].between(
+            input.year_range()[0], input.year_range()[1], inclusive="both"
         )
-        _compute_pipeline_payload.cache_clear()
-        progress.set(detail="Running pipeline...", value=0.4)
-        updated_payload = load_payload(force_recompute=True)
-        progress.set(detail="Updating cache...", value=0.7)
-        payload_store.set(updated_payload)
-        progress.set(
-            message="Refresh complete!",
-            detail="Local cache updated",
-            value=1.0,
-        )
+    )
+
+    # Select columns
+    metric = input.metric()
+    cols = [c for c in df.columns if not c.startswith("daioe_") or metric in c]
+
+    df_filtered = df[mask][cols].sort_values(
+        [f"daioe_{metric}_exposure_level", "year"], ascending=[False, True]
+    )
+
+    return df_filtered
 
 
-# Shared UI options.
-
-LEVEL_CHOICES = {value: label for label, value in LEVEL_OPTIONS}
-
-
-def metric_mapping() -> Dict[str, str]:
-    return {value: label for label, value in METRIC_OPTIONS}
+@reactive.calc
+def base_year_choices():
+    year_start, year_end = input.year_range()
+    return list(range(year_start, year_end + 1))
 
 
-def weighting_mapping() -> Dict[str, str]:
-    return {value: label for label, value in WEIGHTING_OPTIONS}
+@reactive.effect
+@reactive.event(input.year_range)
+def _sync_base_year_select():
+    years = base_year_choices()
+    try:
+        selected_raw = input.base_year()
+        selected = int(selected_raw) if selected_raw is not None else years[-1]
+    except Exception:
+        selected = years[-1]
+    if selected not in years:
+        selected = years[-1]
+    ui.update_select("base_year", choices=years, selected=selected)
 
 
-#### APP BEGINS HERE
+@reactive.calc
+def display_series():
+    df = filtered_data()
+    if df.empty:
+        return pd.DataFrame(), {
+            "value_col": "value_for_plot",
+            "y_label": "Employed persons",
+            "is_index": False,
+            "base_year": None,
+        }
 
-# with ui.div(class_="col-md-10 col-lg-8 py-5 mx-auto text-lg-center text-left"):
-#     ui.h1("Number of Employed Persons by Level of AI Exposure")
+    metric = input.metric()
+    exposure_col = f"daioe_{metric}_exposure_level"
+    grouped = (
+        df.dropna(subset=["age"])
+        .groupby(["age", "year", exposure_col], as_index=False)["employment"]
+        .sum()
+    )
+
+    if input.count_mode() == "raw":
+        grouped["value_for_plot"] = grouped["employment"]
+        return grouped, {
+            "value_col": "value_for_plot",
+            "y_label": "Employed persons",
+            "is_index": False,
+            "base_year": None,
+        }
+
+    years = base_year_choices()
+    try:
+        base_year_raw = input.base_year()
+        base_year = int(base_year_raw) if base_year_raw is not None else years[-1]
+    except Exception:
+        base_year = years[-1]
+    if base_year not in years:
+        base_year = years[-1]
+    base = grouped[grouped["year"] == base_year][
+        ["age", exposure_col, "employment"]
+    ].rename(columns={"employment": "base_employment"})
+    series = grouped.merge(base, on=["age", exposure_col], how="left")
+    denom = series["base_employment"].replace(0, pd.NA)
+    series["value_for_plot"] = (series["employment"] / denom) * 100
+    series["employment_index_base"] = base_year
+
+    return series, {
+        "value_col": "value_for_plot",
+        "y_label": f"Index (base {base_year}=100)",
+        "is_index": True,
+        "base_year": base_year,
+    }
 
 
+# ======================================================
+#  UI LAYOUT
+# ======================================================
 with ui.sidebar(open="desktop", bg="#f8f8f8"):
+    ui.input_select("level", "Level", LEVEL_CHOICES, selected=DEFAULT_LEVEL)
     ui.input_select(
-        "level",
-        "Level",
-        LEVEL_CHOICES,
-        selected=DEFAULT_LEVEL,
+        "weighting", "Weighting", WEIGHTING_MAPPING, selected=DEFAULT_WEIGHTING
+    )
+    ui.input_select(
+        "metric", "Sub-index", METRIC_MAPPING, selected=METRIC_OPTIONS[0][1]
     )
 
-    ui.input_select(
-        "weighting",
-        "Weighting",
-        weighting_mapping(),
-        selected=DEFAULT_WEIGHTING,
+    ui.input_radio_buttons(
+        "count_mode",
+        "Employed persons display",
+        {"raw": "Raw counts", "index": "Index to base year"},
+        selected="raw",
     )
-
-    ui.input_select(
-        "metric",
-        "Sub-index",
-        metric_mapping(),
-        selected=METRIC_OPTIONS[0][1],
-    )
+    with ui.panel_conditional("input.count_mode == 'index'"):
+        ui.input_select(
+            "base_year",
+            "Base year",
+            YEAR_RANGE_DEFAULT,
+            selected=DEFAULT_YEAR_RANGE[1],
+        )
 
     ui.input_slider(
         "year_range",
@@ -179,145 +174,44 @@ with ui.sidebar(open="desktop", bg="#f8f8f8"):
         step=1,
         sep="",
     )
-
-    ui.input_action_button(
-        "refresh_data",
-        "Refresh data",
-        class_="btn-warning mt-3",
-    )
-    # ui.help_text(
-    #     f"Cache dir: {DATA_DIR}. Set DATA_CACHE_DIR env to override. Refresh recomputes and overwrites."
-    # )
-
-
-@reactive.calc
-def filtered_data():
-    payload = payload_store.get()
-    if payload is None:
-        return pd.DataFrame()
-
-    weighting = input.weighting()
-    level = int(input.level())
-    df = payload[weighting]
-    idx1 = df["level"] == level
-    idx2 = df["year"].between(
-        left=input.year_range()[0], right=input.year_range()[1], inclusive="both"
-    )
-    metric = input.metric()
-
-    cols = [c for c in df.columns if not c.startswith("daioe_") or metric in c]
-    df_filtered = df[idx1 & idx2][cols]
-    df_sorted = df_filtered.sort_values(
-        [f"daioe_{metric}_exposure_level", "year"], ascending=[False, True]
-    )
-    return df_sorted
-
+    ui.input_action_button("refresh_data", "Refresh data", class_="btn-warning mt-3")
 
 with ui.nav_panel("Visuals"):
     with ui.div(style="display:flex; justify-content:center;"):
-        output_widget("plot")
+        # Keep output id aligned with render function name
+        output_widget("exposure_plot")
 
         @render_plotly
-        def exposure_plot():
-            df = filtered_data()
-            metric = input.metric()
-            exposure_col = f"daioe_{metric}_exposure_level"
+        def exposure_plot2():
+            df, meta = display_series()
+            if df.empty:
+                return None
 
-            df = df.dropna(subset=["age", exposure_col])
-            age_groups = sorted(df["age"].unique())
-
-            fig = make_subplots(
-                rows=len(age_groups),
-                cols=1,
-                shared_xaxes=False,
-                subplot_titles=[
-                    f"Employed Persons Aged {age} Years by AI Exposure ({metric_mapping()[metric]}, {weighting_mapping()[input.weighting()]})"
-                    for age in age_groups
-                ],
-                vertical_spacing=0.03,
+            return create_exposure_plot(
+                df,
+                metric=input.metric(),
+                metric_label=METRIC_MAPPING[input.metric()],
+                weighting_label=WEIGHTING_MAPPING[input.weighting()],
+                value_col=meta["value_col"],
+                y_axis_label=meta["y_label"],
+                is_index=meta["is_index"],
+                base_year=meta["base_year"],
             )
-
-            for i, age in enumerate(age_groups, start=1):
-                df_age = df[df["age"] == age]
-                df_plot = df_age.groupby(["year", exposure_col], as_index=False)[
-                    "employment"
-                ].sum()
-
-                for exposure_level, sub in df_plot.groupby(exposure_col):
-                    fig.add_trace(
-                        go.Scatter(
-                            x=sub["year"],
-                            y=sub["employment"],
-                            mode="lines+markers",
-                            line=dict(width=3),
-                            marker=dict(size=9),
-                            name=f"Level {exposure_level}",
-                            showlegend=(
-                                i == 1
-                            ),  # Only show legend items for the first plot
-                            hovertemplate=(
-                                "Age: %{customdata[0]}<br>"
-                                "Exposure Level: Level %{customdata[1]}<br>"
-                                "Year: %{x}<br>"
-                                "Number of Employed Persons: %{y:,}<extra></extra>"
-                            ),
-                            customdata=list(
-                                zip([age] * len(sub), [exposure_level] * len(sub))
-                            ),
-                        ),
-                        row=i,
-                        col=1,
-                    )
-
-                # X label on each subplot
-                fig.update_xaxes(
-                    title_text="Year",
-                    tickmode="linear",
-                    dtick=1,
-                    row=i,
-                    col=1,
-                )
-
-                # Y label on each subplot
-                fig.update_yaxes(
-                    title_text="Employed Persons",
-                    tickformat=",",
-                    rangemode="tozero",
-                    row=i,
-                    col=1,
-                )
-
-            # Shift Subplot Titles Up
-            fig.update_annotations(yshift=30)
-
-            fig.update_layout(
-                height=700 * len(age_groups),
-                width=1300,
-                legend=dict(
-                    title="Exposure Level",
-                    orientation="h",
-                    x=0.5,
-                    y=1.02,
-                    xanchor="center",
-                    yanchor="bottom",
-                ),
-                margin=dict(t=100, l=50, r=80, b=40),
-            )
-
-            return fig
 
 
 with ui.nav_panel("Data"):
 
     @render.data_frame
     def display_df():
-        df = filtered_data()
-        return render.DataGrid(
-            df,
-            height=800,
-            selection_mode="rows",
-            filters=True,
-        )
+        df, meta = display_series()
+        if df.empty:
+            return render.DataGrid(
+                pd.DataFrame(), height=800, selection_mode="rows", filters=True
+            )
+
+        table = df.copy()
+        table = table.rename(columns={"value_for_plot": "display_value"})
+        return render.DataGrid(table, height=800, selection_mode="rows", filters=True)
 
     ui.input_radio_buttons(
         "download_format",
@@ -326,25 +220,12 @@ with ui.nav_panel("Data"):
         selected="csv",
     )
 
-    # ui.download_button("download_data", "Download Filtered Data")
-
     @render.download(
-        filename=lambda: f"employment_data_{input.metric()}_{input.level()}.{input.download_format()}"
+        filename=lambda: f"data_{input.metric()}.{input.download_format()}"
     )
     def download_data():
-        df = filtered_data()
-        format_type = input.download_format()
-
-        if format_type == "csv":
-            # Yield CSV text (Shiny will handle encoding)
+        df, _meta = display_series()
+        if input.download_format() == "csv":
             yield df.to_csv(index=False)
-
-        elif format_type == "json":
-            # Yield JSON text
+        else:
             yield df.to_json(orient="records", indent=2)
-
-
-# with ui.layout_columns(col_widths=[12]):
-#     for i in range(1, 9):
-#         with ui.card():
-#             f"Card {i}"

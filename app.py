@@ -128,12 +128,12 @@ def display_series():
     ].rename(columns={"employment": "base_employment"})
     series = grouped.merge(base, on=["age", exposure_col], how="left")
     denom = series["base_employment"].replace(0, pd.NA)
-    series["value_for_plot"] = (series["employment"] / denom) * 100
+    series["value_for_plot"] = series["employment"] / denom
     series["employment_index_base"] = base_year
 
     return series, {
         "value_col": "value_for_plot",
-        "y_label": f"Index (base {base_year}=100)",
+        "y_label": f"Index (base {base_year}=1.0)",
         "is_index": True,
         "base_year": base_year,
     }
@@ -162,7 +162,7 @@ with ui.sidebar(open="desktop", bg="#f8f8f8"):
             "base_year",
             "Base year",
             YEAR_RANGE_DEFAULT,
-            selected=DEFAULT_YEAR_RANGE[1],
+            selected=2022,
         )
 
     ui.input_slider(

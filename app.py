@@ -161,14 +161,14 @@ with ui.sidebar(open="desktop", position="right"):
         "weighting", "Weighting", WEIGHTING_MAPPING, selected=DEFAULT_WEIGHTING
     )
     ui.input_select(
-        "metric", "Sub-index", METRIC_MAPPING, selected=METRIC_OPTIONS[0][1]
+        "metric", "Sub-index", METRIC_MAPPING, selected=METRIC_OPTIONS[10][1]
     )
 
     ui.input_radio_buttons(
         "count_mode",
         "Employed persons display",
         {"raw": "Raw counts", "index": "Index to base year"},
-        selected="raw",
+        selected="index",
     )
     with ui.panel_conditional("input.count_mode == 'index'"):
         ui.input_select(

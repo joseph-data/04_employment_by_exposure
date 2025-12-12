@@ -2,7 +2,6 @@ import pandas as pd
 from shiny import reactive
 from shiny.express import input, ui, render
 from shinywidgets import output_widget, render_plotly
-from shinyswatch import theme
 from pathlib import Path
 
 # Import organized modules

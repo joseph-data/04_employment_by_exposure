@@ -17,14 +17,14 @@ DEFAULT_LINE_COLORS: dict[int, str] = {
 
 HOVER_TEMPLATE_INDEX = (
     "Age: %{customdata[0]}<br>"
-    "Exposure Level: Level %{customdata[1]}<br>"
+    "Exposure Level: Level %{customdata[1]} (1 = least exposed, 5 = most exposed)<br>"
     "Year: %{x}<br>"
     "Index: %{y:.1f}<extra></extra>"
 )
 
 HOVER_TEMPLATE_RAW = (
     "Age: %{customdata[0]}<br>"
-    "Exposure Level: Level %{customdata[1]}<br>"
+    "Exposure Level: Level %{customdata[1]} (1 = least exposed, 5 = most exposed)<br>"
     "Year: %{x}<br>"
     "Number of Employed Persons: %{y:,}<extra></extra>"
 )
@@ -202,7 +202,7 @@ def create_exposure_plot(
         height=700 * len(age_groups),
         width=1000,
         legend=dict(
-            title="Exposure Level",
+            title="Exposure Level (1 = least exposed, 5 = most exposed)",
             orientation="h",
             x=0.5,
             y=1.02,

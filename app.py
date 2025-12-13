@@ -168,7 +168,7 @@ with ui.sidebar(open="desktop", position="right"):
         "count_mode",
         "Employed persons display",
         {"raw": "Raw counts", "index": "Index to base year"},
-        selected="index",
+        selected="raw",
     )
     with ui.panel_conditional("input.count_mode == 'index'"):
         ui.input_select(
@@ -190,58 +190,58 @@ with ui.sidebar(open="desktop", position="right"):
     ui.input_action_button("refresh_data", "Refresh data", class_="btn-warning mt-3")
 
 # Fixed navigation structure
-with ui.navset_tab(id="main_tabs"):
-    with ui.nav_panel("Visuals"):
-        with ui.div(style="display:flex; justify-content:center;"):
-            # Keep output id aligned with render function name
-            output_widget("exposure_plot")
+# with ui.navset_tab(id="main_tabs"):
+# with ui.nav_panel("Visuals"):
+with ui.div(style="display:flex; justify-content:center;"):
+    # Keep output id aligned with render function name
+    output_widget("exposure_plot")
 
-            @render_plotly
-            def exposure_plot2():  # Renamed from exposure_plot2 to match output_widget id
-                df, meta = display_series()
-                if df.empty:
-                    return None
+    @render_plotly
+    def exposure_plot2():  # Renamed from exposure_plot2 to match output_widget id
+        df, meta = display_series()
+        if df.empty:
+            return None
 
-                return create_exposure_plot(
-                    df,
-                    metric=input.metric(),
-                    metric_label=METRIC_MAPPING[input.metric()],
-                    weighting_label=WEIGHTING_MAPPING[input.weighting()],
-                    value_col=meta["value_col"],
-                    y_axis_label=meta["y_label"],
-                    is_index=meta["is_index"],
-                    base_year=meta["base_year"],
-                )
-
-    with ui.nav_panel("Data"):
-
-        @render.data_frame
-        def display_df():
-            df, meta = display_series()
-            if df.empty:
-                return render.DataGrid(
-                    pd.DataFrame(), height=800, selection_mode="rows", filters=True
-                )
-
-            table = df.copy()
-            table = table.rename(columns={"value_for_plot": "display_value"})
-            return render.DataGrid(
-                table, height=800, selection_mode="rows", filters=True
-            )
-
-        ui.input_radio_buttons(
-            "download_format",
-            "Download format",
-            {"csv": "CSV", "json": "JSON"},
-            selected="csv",
+        return create_exposure_plot(
+            df,
+            metric=input.metric(),
+            metric_label=METRIC_MAPPING[input.metric()],
+            weighting_label=WEIGHTING_MAPPING[input.weighting()],
+            value_col=meta["value_col"],
+            y_axis_label=meta["y_label"],
+            is_index=meta["is_index"],
+            base_year=meta["base_year"],
         )
 
-        @render.download(
-            filename=lambda: f"data_{input.metric()}.{input.download_format()}"
-        )
-        def download_data():
-            df, _meta = display_series()
-            if input.download_format() == "csv":
-                yield df.to_csv(index=False)
-            else:
-                yield df.to_json(orient="records", indent=2)
+# with ui.nav_panel("Data"):
+
+#     @render.data_frame
+#     def display_df():
+#         df, meta = display_series()
+#         if df.empty:
+#             return render.DataGrid(
+#                 pd.DataFrame(), height=800, selection_mode="rows", filters=True
+#             )
+
+#         table = df.copy()
+#         table = table.rename(columns={"value_for_plot": "display_value"})
+#         return render.DataGrid(
+#             table, height=800, selection_mode="rows", filters=True
+#         )
+
+#     ui.input_radio_buttons(
+#         "download_format",
+#         "Download format",
+#         {"csv": "CSV", "json": "JSON"},
+#         selected="csv",
+#     )
+
+#     @render.download(
+#         filename=lambda: f"data_{input.metric()}.{input.download_format()}"
+#     )
+#     def download_data():
+#         df, _meta = display_series()
+#         if input.download_format() == "csv":
+#             yield df.to_csv(index=False)
+#         else:
+#             yield df.to_json(orient="records", indent=2)

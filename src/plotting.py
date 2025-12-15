@@ -129,8 +129,10 @@ def create_exposure_plot(
     # ------------------------------------------------------------------
     subplot_titles = [
         (
-            f"<b>Employed Persons Aged {age} Years by AI Exposure Level "
-            f"({metric_label}, {weighting_label})</b>"
+            f"<b>Employed Persons Aged {age} Years by AI Exposure Level</b><br>"
+            f"<span style='font-size:13px; color:#6b7280;'display:inline-block;'>"
+            f"{metric_label} - {weighting_label}"
+            f"</span>"
         )
         for age in age_groups
     ]
@@ -186,39 +188,59 @@ def create_exposure_plot(
             row=i,
             col=1,
         )
+
         fig.update_yaxes(
             title_text=y_axis_label,
             tickformat=",",
             rangemode="tozero",
             row=i,
             col=1,
+            automargin=True,
         )
 
     # ------------------------------------------------------------------
     # 4. Global layout tweaks
     # ------------------------------------------------------------------
-    fig.update_annotations(yshift=30)
+    BASE_PLOT_WIDTH = 1000
+    LEFT_LEGEND_MARGIN = 260
+
+    fig.update_annotations(yshift=36)
+
     fig.update_layout(
         height=700 * len(age_groups),
-        width=1000,
+        width=BASE_PLOT_WIDTH + LEFT_LEGEND_MARGIN,  # preserve plot width
         legend=dict(
-            title="Exposure Level (1 = least exposed, 5 = most exposed)",
-            orientation="h",
-            x=0.5,
-            y=1.02,
-            xanchor="center",
-            yanchor="bottom",
-            bordercolor="#c7c7c7",
-            borderwidth=2,
-            bgcolor="#f9f9f9",
+            title=dict(
+                text=(
+                    "<b>Exposure level</b><br>"
+                    "<span style='font-size:11px'>(1 = least exposed, 5 = most exposed)</span>"
+                ),
+                side="top",
+                font=dict(size=13),
+            ),
+            orientation="v",
+            x=-0.1,  # left edge of plotting area
+            xanchor="right",  # legend sits just outside-left
+            y=0.98,
+            yanchor="top",
+            itemsizing="constant",
+            itemwidth=35,  # keeps items compact
+            tracegroupgap=6,
+            bordercolor="rgba(0,0,0,0.15)",
+            borderwidth=1,
+            bgcolor="rgba(255,255,255,0.85)",
             font=dict(size=12),
+            indentation=10,
+            yref="paper",
         ),
-        margin=dict(t=100, l=50, r=80, b=40),
+        margin=dict(
+            t=170,
+            l=LEFT_LEGEND_MARGIN,
+            r=60,
+            b=60,
+        ),
         plot_bgcolor="#f5f7fb",
         xaxis_showgrid=True,
-        # yaxis_showgrid=True,
-        # xaxis_gridcolor="#e6ecf5",
-        # yaxis_gridcolor="#e6ecf5",
     )
 
     # ------------------------------------------------------------------

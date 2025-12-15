@@ -5,25 +5,14 @@ Configuration constants for SSYK DAIOE data pipeline.
 from typing import Dict, List, Literal, Tuple
 
 # ======================================================
-#  SCB API / DATA SOURCES (Add TAXONOMY here)
+#  DATA SOURCES / CONSTANTS
 # ======================================================
 TAXONOMY: Literal["ssyk2012"] = "ssyk2012"
 
-DAIOE_SOURCE: str = (
-    "https://raw.githubusercontent.com/joseph-data/07_translate_ssyk/main/"
-)
-
-# ======================================================
-#  DATA SOURCES
-# ======================================================
+# Pre-translated DAIOE file;
 DAIOE_SOURCE: str = (
     "https://raw.githubusercontent.com/joseph-data/07_translate_ssyk/main/"
     "03_translated_files/daioe_ssyk2012_translated.csv"
-)
-
-CODEBOOK_SOURCE: str = (
-    "https://raw.githubusercontent.com/joseph-data/07_translate_ssyk/main/"
-    "02_translation_files/ssyk2012_en.xlsx"
 )
 
 DEFAULT_SEP: str = ","

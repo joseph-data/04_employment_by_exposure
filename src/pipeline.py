@@ -1,21 +1,34 @@
-"""
-Core pipeline logic: merging DAIOE scores with SCB employment weights.
+"""Core pipeline logic: merge DAIOE scores with SCB employment counts.
 
-All data loading and aggregation steps are contained here, making this the
-central data transformation module.
+This module orchestrates the loading, cleaning and aggregation of two
+datasets:
+
+* The DAIOE dataset, which provides AI exposure scores by SSYK2012
+  occupational codes and year.
+* The employment dataset retrieved from Statistics Sweden (SCB),
+  containing counts of employed persons by occupation, age and year.
+
+The primary entry point is :func:`run_pipeline`, which produces two
+DataFrames: a weighted aggregation and a simple mean aggregation of
+exposure scores at each hierarchy level of SSYK2012.  Additional helper
+functions support year filtering, percentile ranking and exposure
+level assignment.
 """
 
 from __future__ import annotations
 
-# Import constants and the new SCB fetch function
 from .config import DAIOE_SOURCE, DEFAULT_SEP, TAXONOMY
 from .scb_fetch import fetch_all_employment_data
-
 
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
 
+import logging
 import pandas as pd
+
+# Module‑level logger
+logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Helpers (Copied from main.py)
@@ -23,21 +36,59 @@ import pandas as pd
 
 
 def split_code_label(series: pd.Series) -> Tuple[pd.Series, pd.Series]:
+    """Split a SSYK code+label string into separate code and label parts.
+
+    Parameters
+    ----------
+    series : pd.Series
+        A Series of strings of the form ``"<code> <label>"`` or ``None``.
+
+    Returns
+    -------
+    Tuple[pd.Series, pd.Series]
+        Two Series: codes (zero‑padded to retain leading zeros) and labels.
+    """
     parts = series.astype(str).str.split(" ", n=1, expand=True)
     parts = parts.fillna({0: "", 1: ""})
     return parts[0], parts[1]
 
 
 def ensure_columns(df: pd.DataFrame, required: List[str]) -> None:
+    """Raise an error if the DataFrame lacks any of the required columns."""
     missing = [col for col in required if col not in df.columns]
     if missing:
         raise KeyError(f"Missing expected columns: {missing}")
 
 
 def filter_years(
-    df: pd.DataFrame, year_min: Optional[int], year_max: Optional[int], *, year_col: str
+    df: pd.DataFrame,
+    year_min: Optional[int],
+    year_max: Optional[int],
+    *,
+    year_col: str,
 ) -> pd.DataFrame:
-    """Filter a frame to [year_min, year_max] bounds when provided."""
+    """Return a DataFrame filtered to the inclusive year range.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input data containing a column with year values.
+    year_min : Optional[int]
+        Lower bound (inclusive) on the year filter; ``None`` leaves the lower
+        bound unbounded.
+    year_max : Optional[int]
+        Upper bound (inclusive) on the year filter; ``None`` leaves the upper
+        bound unbounded.
+    year_col : str
+        Name of the column in ``df`` holding year values.
+
+    Returns
+    -------
+    pd.DataFrame
+        A new DataFrame containing only rows where ``year_col`` lies
+        between ``year_min`` and ``year_max``.  Missing year values are
+        excluded.
+    """
     if year_min is None and year_max is None:
         return df.copy()
     mask = pd.Series(True, index=df.index, dtype=bool)
@@ -46,7 +97,7 @@ def filter_years(
     if year_max is not None:
         mask &= df[year_col] <= year_max
     mask = mask.fillna(False)
-    return df[mask].copy()
+    return df.loc[mask].copy()
 
 
 def resolve_year_bounds(
@@ -55,8 +106,26 @@ def resolve_year_bounds(
     override_min: Optional[int],
     override_max: Optional[int],
 ) -> Tuple[int, int]:
-    """
-    Determine year bounds from data; overrides win if provided.
+    """Compute the intersection of year ranges from two datasets.
+
+    Parameters
+    ----------
+    daioe_df : pd.DataFrame
+        DataFrame containing a ``year`` column for the DAIOE dataset.
+    emp_df : pd.DataFrame
+        DataFrame containing a ``year`` column for the employment dataset.
+    override_min : Optional[int]
+        If provided, override the inferred minimum year.  Otherwise the
+        maximum of the two dataset minima is used.
+    override_max : Optional[int]
+        If provided, override the inferred maximum year.  Otherwise the
+        minimum of the two dataset maxima is used.
+
+    Returns
+    -------
+    Tuple[int, int]
+        The inclusive year range ``(year_min, year_max)`` to apply to both
+        datasets.  Raises ``ValueError`` if no overlap exists.
     """
     daioe_years = daioe_df["year"].dropna().astype(int)
     emp_years = emp_df["year"].dropna().astype(int)
@@ -88,7 +157,20 @@ def resolve_year_bounds(
 def load_daioe_raw(
     source: str | Path = DAIOE_SOURCE, sep: str = DEFAULT_SEP
 ) -> pd.DataFrame:
-    """Load the translated DAIOE CSV for SSYK2012."""
+    """Load the pre‑translated DAIOE CSV for SSYK2012.
+
+    Parameters
+    ----------
+    source : str or Path
+        Path or URL to the translated DAIOE CSV.
+    sep : str, optional
+        Column delimiter; defaults to `","`.
+
+    Returns
+    -------
+    pd.DataFrame
+        The raw DAIOE data as read from the CSV.
+    """
     return pd.read_csv(source, sep=sep)
 
 
@@ -98,18 +180,43 @@ def prepare_daioe(
     year_min: Optional[int] = None,
     year_max: Optional[int] = None,
 ) -> Tuple[pd.DataFrame, List[str]]:
-    """
-    Clean DAIOE frame, parse code/label columns, filter years, and coerce metrics.
+    """Clean and enrich the DAIOE DataFrame.
+
+    This function performs several steps:
+
+    * Drop the unhelpful ``Unnamed: 0`` column if present.
+    * Ensure the presence of a ``year`` column and convert it to pandas
+      nullable integer type.
+    * Optionally filter to a year range.
+    * Extract separate code and label columns for each level of the
+      SSYK2012 hierarchy.
+    * Identify and coerce all ``daioe_*`` metric columns to numeric.
+
+    Parameters
+    ----------
+    raw : pd.DataFrame
+        The raw DAIOE data frame.
+    year_min, year_max : Optional[int], optional
+        Lower and upper bounds for year filtering.  Pass ``None`` to
+        disable filtering on that bound.
+
+    Returns
+    -------
+    Tuple[pd.DataFrame, List[str]]
+        A tuple of (cleaned DataFrame, list of DAIOE metric column names).
     """
     df = raw.drop(columns=["Unnamed: 0"], errors="ignore").copy()
     ensure_columns(df, ["year"])
     df["year"] = pd.to_numeric(df["year"], errors="coerce").astype("Int64")
     df = filter_years(df, year_min, year_max, year_col="year")
 
+    # Identify DAIOE metric columns
     daioe_cols = [col for col in df.columns if col.startswith("daioe_")]
     if not daioe_cols:
         raise KeyError("Expected at least one 'daioe_*' column in DAIOE file.")
 
+    # Map from hierarchy level to column name; ensure all expected hierarchy
+    # columns exist.
     level_cols = {
         4: "ssyk2012_4",
         3: "ssyk2012_3",
@@ -118,12 +225,13 @@ def prepare_daioe(
     }
     ensure_columns(df, list(level_cols.values()))
 
+    # Parse combined code/label strings into separate columns for each level
     for level, col in level_cols.items():
         codes, labels = split_code_label(df[col])
         df[f"code{level}"] = codes.str.strip().str.zfill(level)
         df[f"label{level}"] = labels.fillna("").str.strip()
 
-    # Coerce DAIOE metrics to numeric
+    # Coerce all DAIOE metrics to numeric
     for metric in daioe_cols:
         df[metric] = pd.to_numeric(df[metric], errors="coerce")
 
@@ -137,7 +245,16 @@ def load_employment(
 ) -> pd.DataFrame:
     """
     Wrapper to fetch and group employment data.
-    (MODIFIED to call fetch_all_employment_data from .scb_fetch)
+
+    Parameters
+    ----------
+    year_min, year_max : Optional[int], optional
+        Bounds on the year range to filter after retrieval.
+
+    Returns
+    -------
+    pd.DataFrame
+        Employment counts grouped by 4‑digit occupation code, age and year.
     """
     base_df = fetch_all_employment_data()
     if base_df.empty:
@@ -166,10 +283,29 @@ def load_employment(
 def compute_employment_views(
     daioe_df: pd.DataFrame, employment: pd.DataFrame
 ) -> Dict[int, Dict[str, pd.DataFrame]]:
-    """
-    Produce per-level employment tables:
-    - age: employment by year/age/code{level}
-    - total: employment summed over ages by year/code{level}
+    """Build employment views by SSYK level.
+
+    For each SSYK level (4 down to 1), this function produces two views:
+
+    * ``age``: employment counts grouped by year, age and the given code and label.
+    * ``total``: employment counts summed across ages grouped by year, code and label.
+
+    Parameters
+    ----------
+    daioe_df : pd.DataFrame
+        The DAIOE DataFrame with hierarchical code/label columns.
+    employment : pd.DataFrame
+        The employment DataFrame with columns ``year``, ``age``, ``code4`` and
+        ``employment``.
+
+    Returns
+    -------
+    Dict[int, Dict[str, pd.DataFrame]]
+        A nested dictionary keyed by level (4–1) and view name (``"age"`` or
+        ``"total"``).  ``views[level]["age"]`` contains a DataFrame
+        indexed by year/age/code with a column ``employment``.  ``views[level]["total"]``
+        contains a DataFrame indexed by year/code with a column
+        ``employment_total``.
     """
     base_cols = [
         "year",
@@ -205,8 +341,24 @@ def compute_employment_views(
 
 
 def compute_children_maps(df: pd.DataFrame) -> Dict[int, pd.DataFrame]:
-    """
-    Count how many descendants each code has in the next-lower level (per year).
+    """Count the number of descendants for each code at each hierarchy level.
+
+    For levels 3, 2 and 1, the number of children is the count of unique
+    codes at the next lower level (e.g., the number of 4‑digit codes under
+    each 3‑digit code).  For level 4, there are no further subdivisions, so
+    ``n_children`` is set to 1 by convention.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DAIOE DataFrame containing code columns ``code4``–``code1`` and
+        ``year``.
+
+    Returns
+    -------
+    Dict[int, pd.DataFrame]
+        A dictionary keyed by level (4–1) where each value is a DataFrame
+        with columns ``year``, ``code<level>`` and ``n_children``.
     """
     base = df[["year", "code4", "code3", "code2", "code1"]].drop_duplicates()
     counts: Dict[int, pd.DataFrame] = {}
@@ -225,6 +377,7 @@ def compute_children_maps(df: pd.DataFrame) -> Dict[int, pd.DataFrame]:
         .nunique()
         .reset_index(name="n_children")
     )
+    # For level 4 there are no further subdivisions; assign 1 by definition
     lvl4 = base.groupby(["year", "code4"]).size().reset_index(name="n_children")
     lvl4["n_children"] = 1
     counts[4] = lvl4
@@ -232,10 +385,32 @@ def compute_children_maps(df: pd.DataFrame) -> Dict[int, pd.DataFrame]:
 
 
 def add_percentiles(
-    df: pd.DataFrame, metrics: List[str], *, group_cols: Optional[List[str]] = None
+    df: pd.DataFrame,
+    metrics: List[str],
+    *,
+    group_cols: Optional[List[str]] = None,
 ) -> pd.DataFrame:
-    """
-    Compute percentile rank within the provided grouping for each DAIOE metric.
+    """Add percentile ranks to the DataFrame for each metric.
+
+    Percentile ranks are computed within the provided grouping.  Lower
+    numeric metric values correspond to lower percentile ranks (i.e.,
+    higher exposure gets a higher percentile).  Ties use the default
+    ``average`` ranking method.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input DataFrame containing metric columns.
+    metrics : List[str]
+        Names of the metric columns for which to compute percentile ranks.
+    group_cols : Optional[List[str]]
+        Columns to group by when computing percentiles.  Defaults to
+        ``["level", "year"]``.
+
+    Returns
+    -------
+    pd.DataFrame
+        The original DataFrame with additional ``<metric>_pctile`` columns.
     """
     grouping = group_cols or ["level", "year"]
     for metric in metrics:
@@ -246,8 +421,23 @@ def add_percentiles(
 
 
 def add_exposure_levels(df: pd.DataFrame, metrics: List[str]) -> pd.DataFrame:
-    """
-    Bucket percentile ranks into five exposure levels (1=lowest, 5=highest).
+    """Assign discrete exposure levels from percentile ranks.
+
+    Percentiles are binned into quintiles: (0–0.2] → 1 (least exposed),
+    (0.2–0.4] → 2, …, (0.8–1.0] → 5 (most exposed).  The resulting
+    exposure level columns are nullable integers of type ``Int64``.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing percentile columns ``<metric>_pctile``.
+    metrics : List[str]
+        Metric names corresponding to the percentile columns.
+
+    Returns
+    -------
+    pd.DataFrame
+        The original DataFrame with additional ``<metric>_exposure_level`` columns.
     """
     bins = [0, 0.2, 0.4, 0.6, 0.8, 1.0]
     labels = [1, 2, 3, 4, 5]
@@ -275,8 +465,35 @@ def level_four(
     n_children: pd.DataFrame,
     emp_totals: pd.DataFrame,
 ) -> pd.DataFrame:
+    """Aggregate exposure scores at the 4‑digit SSYK level.
+
+    For level 4, a simple arithmetic mean of the raw exposure scores is used
+    (per year/code combination).  Employment totals and the number of
+    descendants (always one at level 4) are merged onto the result.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input DataFrame containing one row per year/code4/label4/metric.
+    daioe_cols : List[str]
+        Names of the DAIOE metric columns.
+    n_children : pd.DataFrame
+        DataFrame with columns ``year``, ``code4`` and ``n_children``;
+        for level 4 this is always 1.
+    emp_totals : pd.DataFrame
+        DataFrame with columns ``year``, ``code4``, ``label4`` and
+        ``employment_total``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Aggregated DataFrame with columns ``taxonomy``, ``level``, ``code``,
+        ``label``, ``year``, ``n_children``, ``employment_total``, and the
+        DAIOE metric columns.
+    """
     base_cols = ["year", "code4", "label4", *daioe_cols]
     base = df[base_cols].copy()
+    # Simple arithmetic mean for all metrics at the 4‑digit level
     grouped = (
         base.groupby(["year", "code4", "label4"], as_index=False)
         .mean()
@@ -308,6 +525,32 @@ def aggregate_level(
     level: int,
     method: Literal["weighted", "simple"],
 ) -> pd.DataFrame:
+    """Aggregate exposure metrics from 4‑digit codes to a higher level.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The base DataFrame containing columns ``year``, ``code<level>``,
+        ``label<level>``, ``employment_total`` and the DAIOE metric columns.
+    daioe_cols : List[str]
+        Names of the DAIOE metric columns.
+    n_children : pd.DataFrame
+        DataFrame with the number of descendants for the given level.
+    emp_totals : pd.DataFrame
+        Employment totals grouped to the target level.
+    level : int
+        Target SSYK level (1, 2 or 3).
+    method : {"weighted", "simple"}
+        Aggregation method.  ``"weighted"`` computes a weighted mean using
+        ``employment_total`` as the weight.  ``"simple"`` computes a
+        simple arithmetic mean.
+
+    Returns
+    -------
+    pd.DataFrame
+        Aggregated DataFrame with the same schema as ``level_four``, but
+        with ``level`` set appropriately.
+    """
     if level not in (1, 2, 3):
         raise ValueError("Aggregation from level 4 only supports levels 1–3.")
 
@@ -315,35 +558,36 @@ def aggregate_level(
     group_cols = ["year", code_col, label_col]
 
     if method == "weighted":
+        # Compute weighted sums and total weights for each metric in a vectorised way
         tmp = df[group_cols + ["employment_total"] + daioe_cols].copy()
-
-        agg_cols = {}
+        # Dictionary to collect aggregation instructions for groupby
+        agg_map: Dict[str, str] = {}
         for metric in daioe_cols:
+            # Only weight rows where both metric and employment_total are non‑null
             mask = tmp[metric].notna() & tmp["employment_total"].notna()
-            tmp[f"{metric}_wx"] = tmp[metric].where(mask, 0) * tmp[
-                "employment_total"
-            ].where(mask, 0)
-            tmp[f"{metric}_w"] = tmp["employment_total"].where(mask, 0)
-            agg_cols[f"{metric}_wx"] = "sum"
-            agg_cols[f"{metric}_w"] = "sum"
-
-        grouped = tmp.groupby(group_cols, as_index=False).agg(agg_cols)
-
-        # --- MISSING LOGIC WAS HERE ---
+            wx_col = f"{metric}_wx"
+            w_col = f"{metric}_w"
+            tmp[wx_col] = tmp[metric].where(mask, 0) * tmp["employment_total"].where(mask, 0)
+            tmp[w_col] = tmp["employment_total"].where(mask, 0)
+            agg_map[wx_col] = "sum"
+            agg_map[w_col] = "sum"
+        grouped = tmp.groupby(group_cols, as_index=False).agg(agg_map)
+        # Compute weighted means and drop intermediate columns
         for metric in daioe_cols:
-            denom = grouped[f"{metric}_w"].replace(0, pd.NA)
-            grouped[metric] = grouped[f"{metric}_wx"] / denom
-            grouped.drop(columns=[f"{metric}_wx", f"{metric}_w"], inplace=True)
-        # --- END OF MISSING LOGIC ---
-
+            wx_col = f"{metric}_wx"
+            w_col = f"{metric}_w"
+            denom = grouped[w_col].replace(0, pd.NA)
+            grouped[metric] = grouped[wx_col] / denom
+            grouped.drop(columns=[wx_col, w_col], inplace=True)
     else:
+        # Simple arithmetic mean of the metrics
         grouped = df[group_cols + daioe_cols].groupby(group_cols, as_index=False).mean()
 
-    grouped = grouped.merge(
-        n_children,
-        on=["year", code_col],
-        how="left",
-    ).merge(emp_totals, on=["year", code_col, label_col], how="left")
+    # Merge number of descendants and employment totals
+    grouped = (
+        grouped.merge(n_children, on=["year", code_col], how="left")
+        .merge(emp_totals, on=["year", code_col, label_col], how="left")
+    )
 
     grouped["taxonomy"] = TAXONOMY
     grouped["level"] = level
@@ -369,6 +613,36 @@ def build_pipeline(
     emp_views: Dict[int, Dict[str, pd.DataFrame]],
     method: Literal["weighted", "simple"],
 ) -> pd.DataFrame:
+    """Construct the full exposure dataset across all hierarchy levels.
+
+    This function orchestrates the aggregation of 4‑digit codes up to
+    levels 3, 2 and 1, attaches employment counts by age, computes
+    percentile ranks and exposure levels, and returns a single
+    DataFrame suitable for consumption by the front‑end Shiny app.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Cleaned DAIOE DataFrame with ``code4`` and ``label4`` columns.
+    daioe_cols : List[str]
+        Names of the DAIOE metric columns.
+    children : Dict[int, pd.DataFrame]
+        Mapping of level → children count DataFrame (output of
+        :func:`compute_children_maps`).
+    emp_views : Dict[int, Dict[str, pd.DataFrame]]
+        Mapping of level → employment views (output of
+        :func:`compute_employment_views`).
+    method : {"weighted", "simple"}
+        Aggregation method to use when rolling up metrics.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame with one row per (level, code, year, age) combination,
+        containing employment counts, exposure metrics, percentile ranks and
+        exposure levels.
+    """
+    # Attach 4‑digit employment totals to the base DataFrame
     base = df.merge(emp_views[4]["total"], on=["year", "code4", "label4"], how="left")
 
     lvl4 = level_four(base, daioe_cols, children[4], emp_views[4]["total"])
@@ -397,6 +671,7 @@ def build_pipeline(
         method=method,
     )
 
+    # Combine all levels and compute percentiles/exposure levels
     combined_no_age = pd.concat([lvl1, lvl2, lvl3, lvl4], ignore_index=True)
     combined_no_age = combined_no_age.sort_values(
         ["level", "code", "year"], ignore_index=True
@@ -406,7 +681,8 @@ def build_pipeline(
     )
     combined_no_age = add_exposure_levels(combined_no_age, daioe_cols)
 
-    expanded_levels = []
+    # Merge age‑specific employment counts for each level
+    expanded_levels: list[pd.DataFrame] = []
     for level, level_df in ((1, lvl1), (2, lvl2), (3, lvl3), (4, lvl4)):
         scored = combined_no_age[combined_no_age["level"] == level]
         age_view = emp_views[level]["age"].rename(
@@ -447,7 +723,26 @@ def run_pipeline(
     year_min: Optional[int] = None,
     year_max: Optional[int] = None,
 ) -> Dict[str, object]:
-    """Orchestrates the data loading and aggregation pipeline."""
+    """Run the full data pipeline and return weighted and simple results.
+
+    Parameters
+    ----------
+    source : str or Path, optional
+        Location of the translated DAIOE CSV.  Defaults to
+        ``config.DAIOE_SOURCE``.
+    sep : str, optional
+        Column delimiter for the DAIOE CSV.  Defaults to ",".
+    year_min, year_max : Optional[int], optional
+        Bounds on the year range.  If provided, the intersection of
+        ``[year_min, year_max]`` and the available data range is used.
+
+    Returns
+    -------
+    Dict[str, object]
+        A dictionary with two keys, ``"weighted"`` and ``"simple"``,
+        containing DataFrames as returned by :func:`build_pipeline` using
+        employment‐weighted means and simple means respectively.
+    """
 
     # 1. Load raw data (DAIOE and Employment)
     raw = load_daioe_raw(source, sep=sep)

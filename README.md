@@ -9,7 +9,7 @@ license: mit
 ---
 # DAIOE Exposure Explorer (Shiny for Python)
 
-Interactive Shiny app for exploring AI exposure across SSYK2012 occupations. It fetches Statistics Sweden (SCB) employment data, blends it with DAIOE exposure scores, and visualizes employment by exposure level, age group, and year (with raw counts or indexed to a chosen base year).
+Interactive Shiny app for exploring AI exposure across SSYK2012 occupations. It fetches Statistics Sweden (SCB) employment data, blends it with DAIOE exposure scores, and visualizes employment by exposure level, age group, and year (with raw counts or indexed to a chosen base year). DAIOE scores are pulled from the pre-translated SSYK2012 CSV in `joseph-data/07_translate_ssyk`; no translation is performed inside this app.
 
 ## Quick start
 - Python: 3.11+ recommended.
@@ -38,5 +38,5 @@ Interactive Shiny app for exploring AI exposure across SSYK2012 occupations. It 
 ## Notes and troubleshooting
 - First run may take time while SCB data is fetched and the DAIOE file is loaded; cached runs are fast.
 - If plots show blank, check that the pipeline caches exist and the output widget id (`exposure_plot`) matches the render function (already aligned).
-- Network access is required for SCB and the remote codebook/DAIOE CSV unless you point those constants to local files in `src/config.py`.
+- Network access is required for SCB and the pre-translated DAIOE CSV unless you point those constants to local files in `src/config.py`.
 - In index mode the dashed vertical line and label mark the selected base year used for normalization.

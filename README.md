@@ -1,5 +1,5 @@
 ---
-title: DAIOE Explorer
+title: DAIOE Explorer - Employment
 emoji: 🌍
 colorFrom: yellow
 colorTo: indigo

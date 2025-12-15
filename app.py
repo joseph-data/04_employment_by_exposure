@@ -147,6 +147,13 @@ css_file = Path(__file__).parent / "css" / "theme.css"
 
 ui.include_css(css_file)
 
+ui.tags.head(
+    ui.tags.link(
+        rel="stylesheet",
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css",
+    )
+)
+
 ui.page_opts(
     fillable=False,
     fillable_mobile=True,
@@ -192,7 +199,12 @@ with ui.sidebar(open="always", position="right"):
         step=1,
         sep="",
     )
-    ui.input_action_button("refresh_data", "Refresh data", class_="btn-warning mt-3")
+    ui.input_action_button(
+        "refresh_data",
+        "Refresh data",
+        icon=ui.tags.i(class_="fas fa-arrows-rotate"),
+        class_="btn-primary mt-3",
+    )
 
 # Fixed navigation structure
 # with ui.navset_tab(id="main_tabs"):

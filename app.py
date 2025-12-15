@@ -156,7 +156,12 @@ ui.page_opts(
 )
 
 with ui.sidebar(open="always", position="right"):
-    ui.input_select("level", "Level", LEVEL_CHOICES, selected=DEFAULT_LEVEL)
+    ui.input_select(
+        "level",
+        "Occupation Classification Level",
+        LEVEL_CHOICES,
+        selected=DEFAULT_LEVEL,
+    )
     ui.input_select(
         "weighting", "Weighting", WEIGHTING_MAPPING, selected=DEFAULT_WEIGHTING
     )

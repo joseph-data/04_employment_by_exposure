@@ -319,6 +319,7 @@ def compute_employment_views(
         "label1",
     ]
     base_map = daioe_df[base_cols].drop_duplicates()
+    # Attach SSYK labels (by year+code4) to the raw employment rows; inner join keeps the shared universe.
     emp_labeled = employment.merge(
         base_map, on=["year", "code4"], how="inner", validate="many_to_many"
     )
@@ -360,6 +361,7 @@ def compute_children_maps(df: pd.DataFrame) -> Dict[int, pd.DataFrame]:
         A dictionary keyed by level (4–1) where each value is a DataFrame
         with columns ``year``, ``code<level>`` and ``n_children``.
     """
+    # Compute child counts per year so aggregation reflects the set of codes present that year.
     base = df[["year", "code4", "code3", "code2", "code1"]].drop_duplicates()
     counts: Dict[int, pd.DataFrame] = {}
     counts[3] = (
@@ -558,7 +560,7 @@ def aggregate_level(
     group_cols = ["year", code_col, label_col]
 
     if method == "weighted":
-        # Compute weighted sums and total weights for each metric in a vectorised way
+        # Compute weighted means per metric (masking missing metrics/weights without dropping whole rows).
         tmp = df[group_cols + ["employment_total"] + daioe_cols].copy()
         # Dictionary to collect aggregation instructions for groupby
         agg_map: Dict[str, str] = {}
@@ -671,7 +673,8 @@ def build_pipeline(
         method=method,
     )
 
-    # Combine all levels and compute percentiles/exposure levels
+    # Combine all levels and compute percentiles/exposure levels on the no-age table
+    # so exposure bins are consistent across age groups.
     combined_no_age = pd.concat([lvl1, lvl2, lvl3, lvl4], ignore_index=True)
     combined_no_age = combined_no_age.sort_values(
         ["level", "code", "year"], ignore_index=True
@@ -744,14 +747,14 @@ def run_pipeline(
         employment‐weighted means and simple means respectively.
     """
 
-    # 1. Load raw data (DAIOE and Employment)
+    # 1. Load raw inputs (DAIOE and Employment)
     raw = load_daioe_raw(source, sep=sep)
     daioe_df, daioe_cols = prepare_daioe(raw, year_min=None, year_max=None)
 
     # load_employment calls fetch_all_employment_data from .scb_fetch
     employment = load_employment(year_min=None, year_max=None)
 
-    # 2. Resolve Year Bounds
+    # 2. Resolve Year Bounds (restrict to the intersection so we never mix unmatched years)
     resolved_min, resolved_max = resolve_year_bounds(
         daioe_df, employment, year_min, year_max
     )

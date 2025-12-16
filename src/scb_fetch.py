@@ -127,7 +127,7 @@ def fetch_all_employment_data() -> pd.DataFrame:
 
     df = pd.concat(dfs, ignore_index=True)
 
-    # Resolve overlaps between tables by assigning a priority to each table.
+    # Resolve overlaps between tables by assigning a priority (later TABLES entries win).
     table_priority = {key: i for i, key in enumerate(TABLES.keys())}
     df["table_priority"] = df["source_table"].map(table_priority)
     df = (

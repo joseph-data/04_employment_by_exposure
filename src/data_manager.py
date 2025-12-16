@@ -135,6 +135,7 @@ def load_payload(force_recompute: bool = False) -> Dict[str, pd.DataFrame]:
         # Clear the LRU cache before recomputing
         _compute_pipeline_payload.cache_clear()
 
+    # Cache miss or forced recompute: run the heavy pipeline
     logger.info("Computing pipeline data – this may take a while…")
     payload = _compute_pipeline_payload()
 

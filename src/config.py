@@ -17,7 +17,7 @@ DAIOE_SOURCE: str = (
 
 DEFAULT_SEP: str = ","
 
-# SCB table definitions
+# SCB table definitions (order matters: later entries override overlaps in `scb_fetch.py`)
 TABLES: Dict[str, Tuple[str, str, str, str, str]] = {
     "14_to_18": ("en", "AM", "AM0208", "AM0208E", "YREG51"),
     "19_to_21": ("en", "AM", "AM0208", "AM0208E", "YREG51N"),

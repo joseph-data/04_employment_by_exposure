@@ -201,6 +201,7 @@ def create_exposure_plot(
     # ------------------------------------------------------------------
     # 4. Global layout tweaks
     # ------------------------------------------------------------------
+    # Reserve left margin for an outside-left legend so subplot widths stay consistent.
     BASE_PLOT_WIDTH = 1000
     LEFT_LEGEND_MARGIN = 260
 

@@ -1,30 +1,51 @@
-# Python-generated files
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
 __pycache__/
-*.py[oc]
+*.py[cod]
+
+# Build / packaging artifacts
 build/
 dist/
 wheels/
+*.egg-info/
 *.egg-info
 
-# Virtual environments
-.venv
-.ruff_cache
-.vscode
+# -----------------------------------------------------------------------------
+# Virtual environments and tool caches
+# -----------------------------------------------------------------------------
+.venv/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
 
-# Project-specific artifacts
+# -----------------------------------------------------------------------------
+# Editor / OS files
+# -----------------------------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# -----------------------------------------------------------------------------
+# Notebooks
+# -----------------------------------------------------------------------------
+.ipynb_checkpoints/
 test_notebooks/
+
+# -----------------------------------------------------------------------------
+# Local-only repo files (intentionally not committed)
+# -----------------------------------------------------------------------------
 .python-version
 pyproject.toml
 uv.lock
-scripts/03_translate_ssyk2012.py
-scripts/03_translate_ssyk96.py
-scripts/03_translate_ssyk2012.py
-scripts/03_translate_ssyk96.py
-data/01_daioe_raw/
-data/02_scb_data/
-data/04_translation_files/
-scripts/03_translate_ssyk2012.py
-scripts/03_translate_ssyk96.py
-_brand.yml
+
+# -----------------------------------------------------------------------------
+# Generated data artifacts / caches
+# -----------------------------------------------------------------------------
+data/*.tmp
+data/.write_test
+# Keep the versioned caches tracked (e.g. `daioe_*_v1.csv`) and ignore
+# unversioned/deprecated cache outputs.
 data/daioe_simple.csv
 data/daioe_weighted.csv

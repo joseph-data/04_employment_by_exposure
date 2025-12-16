@@ -1,23 +1,40 @@
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+# -----------------------------------------------------------------------------
+# Reduce Docker build context size
+# -----------------------------------------------------------------------------
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
 .Python
-env
-pip-log.txt
-pip-delete-this-directory.txt
-.tox
+
+# Local virtual environments
+env/
+venv/
+.venv/
+
+# Test / coverage artifacts
+.tox/
 .coverage
 .coverage.*
-.cache
+.cache/
 nosetests.xml
 coverage.xml
 *.cover
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+
+# Logs
 *.log
-.git
-.mypy_cache
-.pytest_cache
-.hypothesys
-venv
-.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# VCS / CI metadata (not needed at runtime)
+.git/
+.github/
+
+# Quarto / brand artifacts (keep out of images if present)
 _brand.yml

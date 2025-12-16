@@ -1,3 +1,5 @@
+# Sync this repository to a Hugging Face Space on every push to `main`.
+# The push uses a `HF_TOKEN` secret (write access) and Git LFS for large files.
 name: Sync to Hugging Face hub
 on:
   push:
@@ -6,6 +8,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Least-privilege: we only need to read the repo contents.
 permissions:
   contents: read
   
@@ -13,6 +16,8 @@ jobs:
   check-file-size:
     runs-on: ubuntu-latest
     steps:
+      # Checkout without LFS so large files stored in Git LFS are represented as
+      # small pointer files; this job is meant to catch non-LFS large files.
       - uses: actions/checkout@v3
       - name: Check large files
         run: |
@@ -35,9 +40,11 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
+          # Full history + LFS needed to push to Hugging Face over git.
           fetch-depth: 0
           lfs: true
       - name: Push to hub
         env:
+          # Create this in the repo settings: Settings → Secrets and variables → Actions.
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: git push https://joseph-data:$HF_TOKEN@huggingface.co/spaces/joseph-data/employment_ai main

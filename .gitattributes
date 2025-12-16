@@ -1,4 +1,11 @@
-data/daioe_simple.csv filter=lfs diff=lfs merge=lfs -text
-data/daioe_weighted.csv filter=lfs diff=lfs merge=lfs -text
-data/*.csv filter=lfs diff=lfs merge=lfs -text
+# -----------------------------------------------------------------------------
+# Text normalization
+# -----------------------------------------------------------------------------
+# Keep line endings consistent across platforms to avoid noisy diffs.
+* text=auto eol=lf
+
+# -----------------------------------------------------------------------------
+# Git LFS
+# -----------------------------------------------------------------------------
+# Store large data artifacts in Git LFS (requires `git lfs install`).
 *.csv filter=lfs diff=lfs merge=lfs -text

@@ -1,7 +1,7 @@
 import pandas as pd
 from shiny import reactive
 from shiny.express import input, ui
-from shinywidgets import output_widget, render_plotly
+from shinywidgets import output_widget, render_widget
 from pathlib import Path
 
 # Import organized modules
@@ -224,7 +224,7 @@ with ui.div(style="display:flex; justify-content:center;"):
     # Keep output id aligned with render function name
     output_widget("exposure_plot")
 
-    @render_plotly
+    @render_widget
     def exposure_plot2():  # Renamed from exposure_plot2 to match output_widget id
         df, meta = display_series()
         if df.empty:

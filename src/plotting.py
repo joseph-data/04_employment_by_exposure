@@ -213,8 +213,8 @@ def create_exposure_plot(
         legend=dict(
             title=dict(
                 text=(
-                    "<b>Exposure level</b><br>"
-                    "<span style='font-size:11px'>(1 = least exposed, 5 = most exposed)</span>"
+                    "<b>  Exposure level</b><br>"
+                    "<span style='font-size:11px'> (1 = least exposed, 5 = most exposed) </span>"
                 ),
                 side="top",
                 font=dict(size=13),

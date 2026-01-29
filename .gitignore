@@ -36,9 +36,9 @@ test_notebooks/
 # -----------------------------------------------------------------------------
 # Local-only repo files (intentionally not committed)
 # -----------------------------------------------------------------------------
-.python-version
-pyproject.toml
-uv.lock
+#.python-version
+#pyproject.toml
+#uv.lock
 
 # -----------------------------------------------------------------------------
 # Generated data artifacts / caches

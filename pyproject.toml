@@ -1,0 +1,19 @@
+[project]
+name = "test-apps-before-shipping"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas>=2.3.3",
+    "plotly>=6.5.0",
+    "pyscbwrapper>=0.1.2",
+    "shiny>=1.5.1",
+    "shinywidgets>=0.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "plotnine>=0.15.1",
+    "shinyswatch>=0.9.0",
+]

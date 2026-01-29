@@ -1,32 +1,45 @@
-FROM python:3.13-slim AS base
+# ------------------------------- Builder Stage ------------------------------ #
+FROM python:3.12-bookworm AS builder
 
-# Keep Python output unbuffered (better logs), avoid creating .pyc files,
-# and make pip installs more deterministic in containers.
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update && apt-get install --no-install-recommends -y \
+    build-essential curl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+RUN curl -fsSL https://astral.sh/uv/install.sh -o /install.sh \
+  && chmod 755 /install.sh \
+  && /install.sh \
+  && rm -f /install.sh
+
+ENV PATH="/root/.local/bin:${PATH}"
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 
 WORKDIR /app
 
-# System deps (some Python packages may compile native extensions)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends build-essential && \
-    rm -rf /var/lib/apt/lists/*
+# Install deps from lockfile (cache uv downloads for faster rebuilds)
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
-# Install Python deps first for better Docker layer caching.
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Run as a non-root user (required/recommended by many platforms incl. HF Spaces).
-RUN useradd -m -u 1000 shiny
-USER shiny
+## ------------------------------ Production Stage ---------------------------- ##
+FROM python:3.12-slim-bookworm AS production
 
-# Copy the application code and assets.
-COPY --chown=shiny:shiny . .
+WORKDIR /app
 
-# Hugging Face Spaces default container port.
+# Environment set-up
+COPY --from=builder /app/.venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Copy only what the app needs at runtime
+COPY app.py ./app.py
+COPY src ./src
+#COPY www ./www
+COPY css ./css
+
+# If the app needs data at runtime.
+COPY data ./data
+
+# Requirement for deployment at hf
 EXPOSE 7860
-
-# Start the Shiny for Python app.
-CMD ["shiny", "run", "--host", "0.0.0.0", "--port", "7860", "app.py"]
+CMD ["shiny", "run", "app.py", "--host", "0.0.0.0", "--port", "7860"]
